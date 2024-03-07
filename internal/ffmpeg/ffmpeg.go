@@ -77,7 +77,7 @@ func (t *Transcoder) Transcode(inputFile, outputFile string) error {
 	defer func() {
 		close(done)
 	}()
-	go handleProgressOutput(stdoutChan, done)
+	setupProgressOutputHandler(stdoutChan, done)
 
 	return cmd.Run()
 }
