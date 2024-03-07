@@ -4,7 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+)
+
+var (
+	ValidExtensions = []string{".mp4", ".mkv"}
 )
 
 type Transcoder struct {
@@ -53,7 +58,8 @@ func (t *Transcoder) buildArguments(inputFile, outputFile string) []string {
 
 		// Overwrite
 		"-y",
-
+		// Log only errors
+		"-loglevel", "error",
 		// Progress...
 		"-progress", "pipe:1",
 
@@ -65,6 +71,7 @@ func (t *Transcoder) buildArguments(inputFile, outputFile string) []string {
 func (t *Transcoder) Transcode(inputFile, outputFile string) error {
 	// Create the command to execute and hook up stderr normally
 	cmd := exec.Command("ffmpeg", t.buildArguments(inputFile, outputFile)...)
+	cmd.Stderr = os.Stderr
 
 	// Set up its stdout to route to a channel so we can parse progress
 	stdoutReader, err := cmd.StdoutPipe()
