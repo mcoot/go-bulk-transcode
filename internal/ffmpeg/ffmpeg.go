@@ -12,16 +12,54 @@ var (
 	ValidExtensions = []string{".mp4", ".mkv"}
 )
 
+type videoConfig struct {
+	resX int
+	resY int
+	crf  int
+}
+
+type noiseReductionConfig struct {
+	enabled      bool
+	reductionDb  int
+	noiseFloorDb int
+}
+
+type audioConfig struct {
+	bitrate           string
+	micVolume         float64
+	micNoiseReduction noiseReductionConfig
+}
+
 type Transcoder struct {
-	resolution string
-	crf        string
+	video videoConfig
+	audio audioConfig
 }
 
 func DefaultTranscoder() *Transcoder {
 	return &Transcoder{
-		resolution: "2560:1440",
-		crf:        "24",
+		video: videoConfig{
+			resX: 2560,
+			resY: 1440,
+			crf:  24,
+		},
+		audio: audioConfig{
+			bitrate:   "192k",
+			micVolume: 0.85,
+			micNoiseReduction: noiseReductionConfig{
+				enabled:      true,
+				reductionDb:  20,
+				noiseFloorDb: -40,
+			},
+		},
 	}
+}
+
+func (t *Transcoder) buildFilterComplex() string {
+	noiseReductionFilter := ""
+	if t.audio.micNoiseReduction.enabled {
+		noiseReductionFilter = fmt.Sprintf("afftdn=nr=%d:nf=%d:tn=1[n];[n]", t.audio.micNoiseReduction.reductionDb, t.audio.micNoiseReduction.noiseFloorDb)
+	}
+	return fmt.Sprintf("[0:a:1]%svolume=%.2f[l];[0:a:0][l]amerge=inputs=2[a]", noiseReductionFilter, t.audio.micVolume)
 }
 
 func (t *Transcoder) buildArguments(inputFile, outputFile string) []string {
@@ -35,9 +73,9 @@ func (t *Transcoder) buildArguments(inputFile, outputFile string) []string {
 		// Video encode to h.264
 		"-c:v", "libx264",
 		// 1440p resolution
-		"-vf", fmt.Sprintf("scale=%s", t.resolution),
+		"-vf", fmt.Sprintf("scale=%d:%d", t.video.resX, t.video.resY),
 		// Quality factor
-		"-crf", t.crf,
+		"-crf", fmt.Sprintf("%d", t.video.crf),
 		// Slow preset for better filesize
 		"-preset", "slow",
 		// Pixel format
@@ -46,12 +84,12 @@ func (t *Transcoder) buildArguments(inputFile, outputFile string) []string {
 		// Audio encode in aac
 		"-c:a", "aac",
 		// 192k bitrate
-		"-b:a", "192k",
+		"-b:a", t.audio.bitrate,
 		// Two audio channels
 		"-ac", "2",
 
 		// Complex filter to merge mic into main audio at lower volume
-		"-filter_complex", "[0:a:1]volume=0.8[l];[0:a:0][l]amerge=inputs=2[a]",
+		"-filter_complex", "[0:a:1]afftdn=nr=20:nf=-40:tn=1[n];[n]volume=0.85[l];[0:a:0][l]amerge=inputs=2[a]",
 		// Map the complex filter to the output
 		"-map", "0:v:0",
 		"-map", "[a]",
