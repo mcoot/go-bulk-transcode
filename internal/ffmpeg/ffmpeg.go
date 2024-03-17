@@ -26,6 +26,7 @@ type noiseReductionConfig struct {
 
 type audioConfig struct {
 	bitrate           string
+	mixdownMicTrack   bool
 	micVolume         float64
 	micNoiseReduction noiseReductionConfig
 }
@@ -43,8 +44,9 @@ func DefaultTranscoder() *Transcoder {
 			crf:  24,
 		},
 		audio: audioConfig{
-			bitrate:   "192k",
-			micVolume: 0.85,
+			bitrate:         "192k",
+			mixdownMicTrack: true,
+			micVolume:       0.85,
 			micNoiseReduction: noiseReductionConfig{
 				enabled:      true,
 				reductionDb:  20,
@@ -62,14 +64,8 @@ func (t *Transcoder) buildFilterComplex() string {
 	return fmt.Sprintf("[0:a:1]%svolume=%.2f[l];[0:a:0][l]amerge=inputs=2[a]", noiseReductionFilter, t.audio.micVolume)
 }
 
-func (t *Transcoder) buildArguments(inputFile, outputFile string) []string {
+func (t *Transcoder) buildVideoArguments() []string {
 	return []string{
-		// Input file
-		"-i", inputFile,
-
-		// Faststart for quicker upload
-		"-movflags", "+faststart",
-
 		// Video encode to h.264
 		"-c:v", "libx264",
 		// 1440p resolution
@@ -80,30 +76,46 @@ func (t *Transcoder) buildArguments(inputFile, outputFile string) []string {
 		"-preset", "slow",
 		// Pixel format
 		"-pix_fmt", "yuv420p",
+	}
+}
 
+func (t *Transcoder) buildAudioArguments() []string {
+	return []string{
 		// Audio encode in aac
 		"-c:a", "aac",
 		// 192k bitrate
 		"-b:a", t.audio.bitrate,
 		// Two audio channels
 		"-ac", "2",
+	}
+}
 
+func (t *Transcoder) buildFilterComplexArguments() []string {
+	if !t.audio.mixdownMicTrack {
+		return []string{}
+	}
+
+	return []string{
 		// Complex filter to merge mic into main audio at lower volume
-		"-filter_complex", "[0:a:1]afftdn=nr=20:nf=-40:tn=1[n];[n]volume=0.85[l];[0:a:0][l]amerge=inputs=2[a]",
+		"-filter_complex", t.buildFilterComplex(),
 		// Map the complex filter to the output
 		"-map", "0:v:0",
 		"-map", "[a]",
-
-		// Overwrite
-		"-y",
-		// Log only errors
-		"-loglevel", "error",
-		// Progress...
-		"-progress", "pipe:1",
-
-		// Output file
-		outputFile,
 	}
+}
+
+func (t *Transcoder) buildArguments(inputFile, outputFile string) []string {
+	var args []string
+	args = append(args, "-i", inputFile)
+	args = append(args, t.buildVideoArguments()...)
+	args = append(args, t.buildAudioArguments()...)
+	args = append(args, t.buildFilterComplexArguments()...)
+	args = append(args, "-y")
+	args = append(args, "-loglevel", "error")
+	args = append(args, "-progress", "pipe:1")
+	args = append(args, outputFile)
+
+	return args
 }
 
 func (t *Transcoder) Transcode(inputFile, outputFile string) error {
